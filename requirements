@@ -1,19 +1,9 @@
-# Check and install required packages
-required_packages = [
-    'streamlit',
-    'yfinance',
-    'pandas',
-    'numpy',
-    'plotly',
-    'matplotlib',
-    'seaborn',
-    'openpyxl',
-    'kaleido',
-    'python-dateutil'
-]
-
-for package in required_packages:
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+streamlit==1.31.1
+yfinance==0.2.36
+pandas==2.2.1
+numpy==1.26.4
+plotly==5.20.0
+matplotlib==3.8.3
+seaborn==0.13.2
+openpyxl==3.1.2
+kaleido==0.2.1
