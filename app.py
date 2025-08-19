@@ -325,4 +325,136 @@ with tab1:
                     st.metric("52-Week Low", f"${stock_data['Low'].min():.2f}")
                 
                 # Price history chart
-                st.subheader(f"{selected极
+                st.subheader(f"{selected_stock} Price History")
+                fig = px.line(stock_data, x=stock_data.index, y='Close')
+                fig.update_layout(
+                    template=st.session_state.chart_style,
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error loading data for {selected_stock}: {str(e)}")
+
+# Technical Charts Tab
+with tab2:
+    st.subheader("Technical Analysis")
+    
+    if selected_stock:
+        try:
+            stock_data = get_stock_data(selected_stock, timeframe)
+            
+            if stock_data.empty:
+                st.warning(f"No data available for {selected_stock}")
+            else:
+                stock_data = calculate_indicators(stock_data)
+                
+                # Chart configuration
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.subheader(f"{selected_stock} Technical Chart")
+                    fig = plot_candlestick(
+                        stock_data, 
+                        f"{selected_stock} Analysis",
+                        show_ma,
+                        show_bb,
+                        show_rsi
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Export options
+                    export_col1, export_col2 = st.columns(2)
+                    with export_col1:
+                        st.download_button(
+                            label="Download Chart as HTML",
+                            data=fig.to_html(),
+                            file_name=f"{selected_stock}_chart.html",
+                            mime="text/html"
+                        )
+                    with export_col2:
+                        st.download_button(
+                            label="Download Chart as PNG",
+                            data=fig.to_image(format="png"),
+                            file_name=f"{selected_stock}_chart.png",
+                            mime="image/png"
+                        )
+                
+                with col2:
+                    st.subheader("Chart Settings")
+                    rsi_threshold = st.slider(
+                        "RSI Overbought/Oversold Thresholds",
+                        50, 90, (30, 70))
+                    st.info(f"RSI > {rsi_threshold[1]} = Overbought")
+                    st.info(f"RSI < {rsi_threshold[0]} = Oversold")
+        except Exception as e:
+            st.error(f"Error generating technical chart: {str(e)}")
+
+# Financial Ratios Tab
+with tab3:
+    st.subheader("Financial Health Analysis")
+    
+    if selected_stock:
+        ratios = get_financial_ratios(selected_stock)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        # Valuation metrics
+        with col1:
+            st.subheader("Valuation")
+            st.metric("P/E Ratio", f"{ratios['P/E Ratio']:.2f}" if isinstance(ratios['P/E Ratio'], float) else "N/A")
+            st.metric("P/B Ratio", f"{ratios['P/B Ratio']:.2f}" if isinstance(ratios['P/B Ratio'], float) else "N/A")
+            st.metric("Dividend Yield", f"{ratios['Dividend Yield']:.2f}%" if isinstance(ratios['Dividend Yield'], float) else "N/A")
+        
+        # Profitability metrics
+        with col2:
+            st.subheader("Profitability")
+            st.metric("ROE", f"{ratios['ROE']:.2%}" if isinstance(ratios['ROE'], float) else "N/A")
+            st.metric("Operating Margin", "N/A")
+        
+        # Financial health metrics
+        with col3:
+            st.subheader("Financial Health")
+            st.metric("Current Ratio", f"{ratios['Current Ratio']:.2f}" if isinstance(ratios['Current Ratio'], float) else "N/A")
+            st.metric("Debt/Equity", f"{ratios['Debt/Equity']:.2f}" if isinstance(ratios['Debt/Equity'], float) else "N/A")
+        
+        # Benchmark comparison
+        st.subheader("Sector Comparison")
+        st.warning("Sector comparison data would be implemented with a market data API in production")
+
+# Correlation Analysis Tab
+with tab4:
+    st.subheader("Portfolio Correlation Analysis")
+    
+    if len(portfolio) > 1:
+        with st.expander("Correlation Matrix Explanation"):
+            st.markdown("""
+            **How to interpret this matrix:**
+            - Values close to 1 (dark blue) indicate strong positive correlation
+            - Values close to -1 (dark red) indicate strong negative correlation
+            - Values near 0 indicate no correlation
+            
+            A well-diversified portfolio should contain assets with varying correlations.
+            """)
+        
+        try:
+            fig = plot_correlation(portfolio, timeframe)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Insufficient data to calculate correlations")
+        except Exception as e:
+            st.error(f"Error generating correlation matrix: {str(e)}")
+    else:
+        st.warning("Add at least 2 stocks to portfolio to see correlation analysis")
+
+# Footer
+st.markdown("---")
+st.markdown("""
+**Data Sources:**  
+- Historical Price Data: Yahoo Finance (yfinance)  
+- 13F Holdings: SEC EDGAR Database (sample data)  
+
+**Note:** This app uses sample Berkshire Hathaway portfolio data.  
+For production use, implement SEC EDGAR API integration for live 13F data.
+""")
