@@ -1,28 +1,3 @@
-import subprocess
-import sys
-import os
-
-# Check and install required packages
-required_packages = [
-    'streamlit',
-    'yfinance',
-    'pandas',
-    'numpy',
-    'plotly',
-    'matplotlib',
-    'seaborn',
-    'openpyxl',
-    'kaleido',
-    'python-dateutil'
-]
-
-for package in required_packages:
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# Now import the rest of the libraries
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -40,6 +15,25 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Display installation instructions if packages are missing
+try:
+    import yfinance
+    import plotly
+except ImportError:
+    st.error("""
+    **Required packages are missing!**
+    
+    Please install the required packages using:
+    ```
+    pip install -r requirements.txt
+    ```
+    or
+    ```
+    pip install streamlit yfinance pandas numpy plotly matplotlib seaborn openpyxl kaleido
+    ```
+    """)
+    st.stop()
 
 # Load sample 13F data
 @st.cache_data
@@ -393,7 +387,7 @@ with tab2:
                     st.subheader("Chart Settings")
                     rsi_threshold = st.slider(
                         "RSI Overbought/Oversold Thresholds",
-                        50, 90, (30, 70)
+                        50, 90, (30, 70))
                     st.info(f"RSI > {rsi_threshold[1]} = Overbought")
                     st.info(f"RSI < {rsi_threshold[0]} = Oversold")
         except Exception as e:
