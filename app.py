@@ -70,7 +70,7 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
         name='Price'
     ))
     
-    # Moving Averages
+    # Moving Averages - FIXED: Added missing closing parenthesis
     if show_ma:
         for col in df.columns:
             if 'MA_' in col:
@@ -79,7 +79,7 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
                     y=df[col],
                     name=col,
                     line=dict(width=1.5)
-                )
+                ))  # Fixed: Added closing parenthesis here
     
     # Bollinger Bands
     if show_bb:
@@ -124,7 +124,7 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
             template=st.session_state.get('chart_style', 'plotly_white')
         )
         
-        fig = go.Figure(fig)
+        fig = go.Figure(fig)  # Convert to Figure object
         fig.add_trace(fig_rsi.data[0], row=2, col=1)
         fig.update_layout(grid={'rows': 2, 'columns': 1, 'pattern': "independent"})
         fig.update_yaxes(title_text="RSI", row=2, col=1)
@@ -133,19 +133,29 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
 
 # Calculate financial ratios
 def get_financial_ratios(ticker):
-    stock = yf.Ticker(ticker)
-    info = stock.info
-    
-    ratios = {
-        'P/E Ratio': info.get('trailingPE', 'N/A'),
-        'P/B Ratio': info.get('priceToBook', 'N/A'),
-        'ROE': info.get('returnOnEquity', 'N/A'),
-        'Current Ratio': info.get('currentRatio', 'N/A'),
-        'Debt/Equity': info.get('debtToEquity', 'N/A'),
-        'Dividend Yield': info.get('dividendYield', 'N/A') * 100 if info.get('dividendYield') else 'N/A'
-    }
-    
-    return ratios
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        ratios = {
+            'P/E Ratio': info.get('trailingPE', 'N/A'),
+            'P/B Ratio': info.get('priceToBook', 'N/A'),
+            'ROE': info.get('returnOnEquity', 'N/A'),
+            'Current Ratio': info.get('currentRatio', 'N/A'),
+            'Debt/Equity': info.get('debtToEquity', 'N/A'),
+            'Dividend Yield': info.get('dividendYield', 'N/A') * 100 if info.get('dividendYield') else 'N/A'
+        }
+        
+        return ratios
+    except:
+        return {
+            'P/E Ratio': 'N/A',
+            'P/B Ratio': 'N/A',
+            'ROE': 'N/A',
+            'Current Ratio': 'N/A',
+            'Debt/Equity': 'N/A',
+            'Dividend Yield': 'N/A'
+        }
 
 # Correlation analysis
 def plot_correlation(portfolio, period="1y"):
@@ -297,49 +307,51 @@ with tab2:
     st.subheader("Technical Analysis")
     
     if selected_stock:
-        stock_data = get_stock_data(selected_stock, timeframe)
-        stock_data = calculate_indicators(stock_data)
-        
-        # Chart configuration
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.subheader(f"{selected_stock} Technical Chart")
-            fig = plot_candlestick(
-                stock_data, 
-                f"{selected_stock} Analysis",
-                show_ma,
-                show_bb,
-                show_rsi
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        try:
+            stock_data = get_stock_data(selected_stock, timeframe)
+            stock_data = calculate_indicators(stock_data)
             
-            # Export options
-            export_col1, export_col2 = st.columns(2)
-            with export_col1:
-                st.download_button(
-                    label="Download Chart as HTML",
-                    data=fig.to_html(),
-                    file_name=f"{selected_stock}_chart.html",
-                    mime="text/html"
+            # Chart configuration
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.subheader(f"{selected_stock} Technical Chart")
+                fig = plot_candlestick(
+                    stock_data, 
+                    f"{selected_stock} Analysis",
+                    show_ma,
+                    show_bb,
+                    show_rsi
                 )
-            with export_col2:
-                st.download_button(
-                    label="Download Chart as PNG",
-                    data=fig.to_image(format="png"),
-                    file_name=f"{selected_stock}_chart.png",
-                    mime="image/png"
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Export options
+                export_col1, export_col2 = st.columns(2)
+                with export_col1:
+                    st.download_button(
+                        label="Download Chart as HTML",
+                        data=fig.to_html(),
+                        file_name=f"{selected_stock}_chart.html",
+                        mime="text/html"
+                    )
+                with export_col2:
+                    st.download_button(
+                        label="Download Chart as PNG",
+                        data=fig.to_image(format="png"),
+                        file_name=f"{selected_stock}_chart.png",
+                        mime="image/png"
+                    )
+            
+            with col2:
+                st.subheader("Chart Settings")
+                rsi_threshold = st.slider(
+                    "RSI Overbought/Oversold Thresholds",
+                    50, 90, (30, 70)
                 )
-        
-        with col2:
-            st.subheader("Chart Settings")
-            # FIXED: Added missing closing parenthesis
-            rsi_threshold = st.slider(
-                "RSI Overbought/Oversold Thresholds",
-                50, 90, (30, 70)
-            )
-            st.info(f"RSI > {rsi_threshold[1]} = Overbought")
-            st.info(f"RSI < {rsi_threshold[0]} = Oversold")
+                st.info(f"RSI > {rsi_threshold[1]} = Overbought")
+                st.info(f"RSI < {rsi_threshold[0]} = Oversold")
+        except Exception as e:
+            st.error(f"Error generating technical chart: {str(e)}")
 
 # Financial Ratios Tab
 with tab3:
@@ -388,11 +400,14 @@ with tab4:
             A well-diversified portfolio should contain assets with varying correlations.
             """)
         
-        fig = plot_correlation(portfolio, timeframe)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Insufficient data to calculate correlations")
+        try:
+            fig = plot_correlation(portfolio, timeframe)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Insufficient data to calculate correlations")
+        except Exception as e:
+            st.error(f"Error generating correlation matrix: {str(e)}")
     else:
         st.warning("Add at least 2 stocks to portfolio to see correlation analysis")
 
