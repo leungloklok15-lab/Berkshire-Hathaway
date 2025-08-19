@@ -1,3 +1,28 @@
+import subprocess
+import sys
+import os
+
+# Check and install required packages
+required_packages = [
+    'streamlit',
+    'yfinance',
+    'pandas',
+    'numpy',
+    'plotly',
+    'matplotlib',
+    'seaborn',
+    'openpyxl',
+    'kaleido',
+    'python-dateutil'
+]
+
+for package in required_packages:
+    try:
+        __import__(package)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Now import the rest of the libraries
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -7,7 +32,6 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
 
 # App configuration
 st.set_page_config(
@@ -30,34 +54,49 @@ def load_13f_data():
 # Fetch stock data
 @st.cache_data
 def get_stock_data(ticker, period="1y"):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period=period)
-    return hist
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period=period)
+        return hist
+    except Exception as e:
+        st.error(f"Error fetching data for {ticker}: {str(e)}")
+        return pd.DataFrame()
 
 # Calculate technical indicators
 def calculate_indicators(df, ma_periods=[20, 50], bb_period=20, rsi_period=14):
-    # Moving Averages
-    for period in ma_periods:
-        df[f'MA_{period}'] = df['Close'].rolling(window=period).mean()
-    
-    # Bollinger Bands
-    df['BB_MA'] = df['Close'].rolling(window=bb_period).mean()
-    df['BB_upper'] = df['BB_MA'] + 2 * df['Close'].rolling(window=bb_period).std()
-    df['BB_lower'] = df['BB_MA'] - 2 * df['Close'].rolling(window=bb_period).std()
-    
-    # RSI
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
-    avg_gain = gain.rolling(window=rsi_period).mean()
-    avg_loss = loss.rolling(window=rsi_period).mean()
-    rs = avg_gain / avg_loss
-    df['RSI'] = 100 - (100 / (1 + rs))
+    if df.empty:
+        return df
+        
+    try:
+        # Moving Averages
+        for period in ma_periods:
+            df[f'MA_{period}'] = df['Close'].rolling(window=period).mean()
+        
+        # Bollinger Bands
+        df['BB_MA'] = df['Close'].rolling(window=bb_period).mean()
+        df['BB_upper'] = df['BB_MA'] + 2 * df['Close'].rolling(window=bb_period).std()
+        df['BB_lower'] = df['BB_MA'] - 2 * df['Close'].rolling(window=bb_period).std()
+        
+        # RSI
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
+        
+        avg_gain = gain.rolling(window=rsi_period).mean()
+        avg_loss = loss.rolling(window=rsi_period).mean()
+        
+        rs = avg_gain / avg_loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+    except Exception as e:
+        st.error(f"Error calculating indicators: {str(e)}")
     
     return df
 
 # Plot candlestick chart with indicators
 def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
+    if df.empty:
+        return go.Figure()
+        
     fig = go.Figure()
     
     # Candlestick
@@ -70,7 +109,7 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
         name='Price'
     ))
     
-    # Moving Averages - FIXED: Added missing closing parenthesis
+    # Moving Averages
     if show_ma:
         for col in df.columns:
             if 'MA_' in col:
@@ -79,7 +118,7 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
                     y=df[col],
                     name=col,
                     line=dict(width=1.5)
-                ))  # Fixed: Added closing parenthesis here
+                ))
     
     # Bollinger Bands
     if show_bb:
@@ -165,11 +204,12 @@ def plot_correlation(portfolio, period="1y"):
     for ticker in tickers:
         try:
             df = get_stock_data(ticker, period)
-            data[ticker] = df['Close'].pct_change().dropna()
+            if not df.empty:
+                data[ticker] = df['Close'].pct_change().dropna()
         except:
             continue
     
-    if not data:
+    if not data or len(data) < 2:
         return None
     
     corr_df = pd.DataFrame(data)
@@ -275,29 +315,32 @@ with tab1:
         try:
             stock_data = get_stock_data(selected_stock, timeframe)
             
-            # Calculate daily returns
-            stock_data['Daily Return'] = stock_data['Close'].pct_change()
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric("Current Price", f"${stock_data['Close'].iloc[-1]:.2f}")
-                st.metric("52-Week High", f"${stock_data['High'].max():.2f}")
-            
-            with col2:
-                change = stock_data['Close'].iloc[-1] - stock_data['Close'].iloc[0]
-                pct_change = (change / stock_data['Close'].iloc[0]) * 100
-                st.metric(f"Performance ({timeframe})", f"${change:.2f}", f"{pct_change:.2f}%")
-                st.metric("52-Week Low", f"${stock_data['Low'].min():.2f}")
-            
-            # Price history chart
-            st.subheader(f"{selected_stock} Price History")
-            fig = px.line(stock_data, x=stock_data.index, y='Close')
-            fig.update_layout(
-                template=st.session_state.chart_style,
-                height=400
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            if stock_data.empty:
+                st.warning(f"No data available for {selected_stock}")
+            else:
+                # Calculate daily returns
+                stock_data['Daily Return'] = stock_data['Close'].pct_change()
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric("Current Price", f"${stock_data['Close'].iloc[-1]:.2f}")
+                    st.metric("52-Week High", f"${stock_data['High'].max():.2f}")
+                
+                with col2:
+                    change = stock_data['Close'].iloc[-1] - stock_data['Close'].iloc[0]
+                    pct_change = (change / stock_data['Close'].iloc[0]) * 100
+                    st.metric(f"Performance ({timeframe})", f"${change:.2f}", f"{pct_change:.2f}%")
+                    st.metric("52-Week Low", f"${stock_data['Low'].min():.2f}")
+                
+                # Price history chart
+                st.subheader(f"{selected_stock} Price History")
+                fig = px.line(stock_data, x=stock_data.index, y='Close')
+                fig.update_layout(
+                    template=st.session_state.chart_style,
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
             
         except Exception as e:
             st.error(f"Error loading data for {selected_stock}: {str(e)}")
@@ -309,47 +352,50 @@ with tab2:
     if selected_stock:
         try:
             stock_data = get_stock_data(selected_stock, timeframe)
-            stock_data = calculate_indicators(stock_data)
             
-            # Chart configuration
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                st.subheader(f"{selected_stock} Technical Chart")
-                fig = plot_candlestick(
-                    stock_data, 
-                    f"{selected_stock} Analysis",
-                    show_ma,
-                    show_bb,
-                    show_rsi
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            if stock_data.empty:
+                st.warning(f"No data available for {selected_stock}")
+            else:
+                stock_data = calculate_indicators(stock_data)
                 
-                # Export options
-                export_col1, export_col2 = st.columns(2)
-                with export_col1:
-                    st.download_button(
-                        label="Download Chart as HTML",
-                        data=fig.to_html(),
-                        file_name=f"{selected_stock}_chart.html",
-                        mime="text/html"
+                # Chart configuration
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.subheader(f"{selected_stock} Technical Chart")
+                    fig = plot_candlestick(
+                        stock_data, 
+                        f"{selected_stock} Analysis",
+                        show_ma,
+                        show_bb,
+                        show_rsi
                     )
-                with export_col2:
-                    st.download_button(
-                        label="Download Chart as PNG",
-                        data=fig.to_image(format="png"),
-                        file_name=f"{selected_stock}_chart.png",
-                        mime="image/png"
-                    )
-            
-            with col2:
-                st.subheader("Chart Settings")
-                rsi_threshold = st.slider(
-                    "RSI Overbought/Oversold Thresholds",
-                    50, 90, (30, 70)
-                )
-                st.info(f"RSI > {rsi_threshold[1]} = Overbought")
-                st.info(f"RSI < {rsi_threshold[0]} = Oversold")
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Export options
+                    export_col1, export_col2 = st.columns(2)
+                    with export_col1:
+                        st.download_button(
+                            label="Download Chart as HTML",
+                            data=fig.to_html(),
+                            file_name=f"{selected_stock}_chart.html",
+                            mime="text/html"
+                        )
+                    with export_col2:
+                        st.download_button(
+                            label="Download Chart as PNG",
+                            data=fig.to_image(format="png"),
+                            file_name=f"{selected_stock}_chart.png",
+                            mime="image/png"
+                        )
+                
+                with col2:
+                    st.subheader("Chart Settings")
+                    rsi_threshold = st.slider(
+                        "RSI Overbought/Oversold Thresholds",
+                        50, 90, (30, 70)
+                    st.info(f"RSI > {rsi_threshold[1]} = Overbought")
+                    st.info(f"RSI < {rsi_threshold[0]} = Oversold")
         except Exception as e:
             st.error(f"Error generating technical chart: {str(e)}")
 
