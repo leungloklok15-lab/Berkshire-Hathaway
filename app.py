@@ -17,10 +17,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Load sample 13F data (replace with your actual data source)
+# Load sample 13F data
 @st.cache_data
 def load_13f_data():
-    # Sample Berkshire portfolio - in production, load from SEC/CSV source
     portfolio = {
         'Stock': ['AAPL', 'BAC', 'CVX', 'KO', 'AXP', 'KHC', 'OXY', 'MCO', 'TSM', 'ATVI'],
         'Shares': [915560000, 1010000000, 110247000, 400000000, 151610000, 325634000, 211666000, 24693000, 60000000, 52700000],
@@ -48,9 +47,11 @@ def calculate_indicators(df, ma_periods=[20, 50], bb_period=20, rsi_period=14):
     
     # RSI
     delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
-    rs = gain / loss
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    avg_gain = gain.rolling(window=rsi_period).mean()
+    avg_loss = loss.rolling(window=rsi_period).mean()
+    rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
     return df
@@ -123,7 +124,7 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
             template=st.session_state.get('chart_style', 'plotly_white')
         )
         
-        fig = go.Figure(fig)  # Convert to Figure object
+        fig = go.Figure(fig)
         fig.add_trace(fig_rsi.data[0], row=2, col=1)
         fig.update_layout(grid={'rows': 2, 'columns': 1, 'pattern': "independent"})
         fig.update_yaxes(title_text="RSI", row=2, col=1)
@@ -332,9 +333,11 @@ with tab2:
         
         with col2:
             st.subheader("Chart Settings")
+            # FIXED: Added missing closing parenthesis
             rsi_threshold = st.slider(
                 "RSI Overbought/Oversold Thresholds",
                 50, 90, (30, 70)
+            )
             st.info(f"RSI > {rsi_threshold[1]} = Overbought")
             st.info(f"RSI < {rsi_threshold[0]} = Oversold")
 
