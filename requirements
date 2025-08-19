@@ -1,19 +1,19 @@
-# Core dependencies
-streamlit==1.31.1
-yfinance==0.2.36
-pandas==2.2.1
-numpy==1.26.4
-plotly==5.20.0
+# Check and install required packages
+required_packages = [
+    'streamlit',
+    'yfinance',
+    'pandas',
+    'numpy',
+    'plotly',
+    'matplotlib',
+    'seaborn',
+    'openpyxl',
+    'kaleido',
+    'python-dateutil'
+]
 
-# Visualization & technical analysis
-matplotlib==3.8.3
-seaborn==0.13.2
-ta==0.11.0
-
-# Data handling and export
-openpyxl==3.1.2
-kaleido==0.2.1  # For static plot export
-
-# Version control and deployment
-gunicorn==21.2.0
-setuptools==69.1.1
+for package in required_packages:
+    try:
+        __import__(package)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
