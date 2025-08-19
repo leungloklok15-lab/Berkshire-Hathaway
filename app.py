@@ -1,10 +1,50 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from datetime import datetime
+import sys
+import subprocess
+
+# Check for required packages
+required_packages = ['streamlit', 'yfinance', 'pandas', 'numpy', 'plotly', 'kaleido']
+
+def install_missing_packages():
+    missing = []
+    for package in required_packages:
+        try:
+            __import__(package)
+        except ImportError:
+            missing.append(package)
+    
+    if missing:
+        st.error(f"Missing packages: {', '.join(missing)}")
+        st.info("Attempting to install missing packages...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
+            st.success("Packages installed successfully! Refreshing...")
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Installation failed: {str(e)}")
+            st.stop()
+
+# Try to import Streamlit first
+try:
+    import streamlit as st
+except ImportError:
+    print("Streamlit not found. Installing dependencies...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "streamlit", "yfinance", "pandas", "numpy", "plotly", "kaleido"])
+    import streamlit as st
+
+# Now attempt to import other packages
+try:
+    import yfinance as yf
+    import pandas as pd
+    import numpy as np
+    import plotly.graph_objects as go
+    import plotly.express as px
+except ImportError:
+    install_missing_packages()
+    import yfinance as yf
+    import pandas as pd
+    import numpy as np
+    import plotly.graph_objects as go
+    import plotly.express as px
 
 # App configuration
 st.set_page_config(
@@ -36,29 +76,38 @@ def get_stock_data(ticker, period="1y"):
         return pd.DataFrame()
 
 # Calculate technical indicators
-def calculate_indicators(df, ma_periods=[20], bb_period=20, rsi_period=14):
+def calculate_indicators(df, ma_periods=[20, 50], bb_period=20, rsi_period=14):
     if df.empty:
         return df
         
-    # Moving Averages
-    for period in ma_periods:
-        df[f'MA_{period}'] = df['Close'].rolling(window=period).mean()
-    
-    # Bollinger Bands
-    df['BB_MA'] = df['Close'].rolling(window=bb_period).mean()
-    df['BB_upper'] = df['BB_MA'] + 2 * df['Close'].rolling(window=bb_period).std()
-    df['BB_lower'] = df['BB_MA'] - 2 * df['Close'].rolling(window=bb_period).std()
-    
-    # RSI
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
-    
-    avg_gain = gain.rolling(window=rsi_period).mean()
-    avg_loss = loss.rolling(window=rsi_period).mean()
-    
-    rs = avg_gain / avg_loss
-    df['RSI'] = 100 - (100 / (1 + rs))
+    try:
+        # Moving Averages
+        for period in ma_periods:
+            df[f'MA_{period}'] = df['Close'].rolling(window=period).mean()
+        
+        # Bollinger Bands
+        df['BB_MA'] = df['Close'].rolling(window=bb_period).mean()
+        df['BB_upper'] = df['BB_MA'] + 2 * df['Close'].rolling(window=bb_period).std()
+        df['BB_lower'] = df['BB_MA'] - 2 * df['Close'].rolling(window=bb_period).std()
+        
+        # RSI
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
+        
+        avg_gain = gain.rolling(window=rsi_period).mean()
+        avg_loss = loss.rolling(window=rsi_period).mean()
+        
+        # Handle division by zero
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rs = avg_gain / avg_loss
+            rs = np.where(avg_loss == 0, 0, rs)
+            
+        df['RSI'] = 100 - (100 / (1 + rs))
+        df['RSI'] = df['RSI'].fillna(50)  # Fill NaN with neutral value
+        
+    except Exception as e:
+        st.error(f"Error calculating indicators: {str(e)}")
     
     return df
 
@@ -111,14 +160,36 @@ def plot_candlestick(df, title, show_ma=True, show_bb=True, show_rsi=True):
         title=title,
         xaxis_title='Date',
         yaxis_title='Price ($)',
-        template='plotly_white',
+        template=st.session_state.get('chart_style', 'plotly_white'),
         height=500,
         showlegend=True
     )
     
+    # Create RSI subplot if enabled
+    if show_rsi and 'RSI' in df.columns:
+        fig_rsi = go.Figure()
+        fig_rsi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['RSI'],
+            name='RSI',
+            line=dict(color='purple', width=1.5)
+        ))
+        fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
+        fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
+        fig_rsi.update_layout(
+            height=200,
+            showlegend=False,
+            template=st.session_state.get('chart_style', 'plotly_white')
+        )
+        
+        fig = go.Figure(fig)  # Convert to Figure object
+        fig.add_trace(fig_rsi.data[0], row=2, col=1)
+        fig.update_layout(grid={'rows': 2, 'columns': 1, 'pattern': "independent"})
+        fig.update_yaxes(title_text="RSI", row=2, col=1)
+    
     return fig
 
-# Financial Ratios
+# Calculate financial ratios
 def get_financial_ratios(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -166,7 +237,7 @@ def plot_correlation(portfolio, period="1y"):
     fig = px.imshow(
         corr_matrix,
         text_auto=".2f",
-        color_continuous_scale='RdBu',
+        color_continuous_scale=st.session_state.get('correlation_colormap', 'RdBu'),
         zmin=-1,
         zmax=1,
         title="Portfolio Correlation Matrix"
@@ -175,8 +246,14 @@ def plot_correlation(portfolio, period="1y"):
     return fig
 
 # Initialize session state
-if 'chart_style' not in st.session_state:
-    st.session_state.chart_style = 'plotly_white'
+if 'chart_config' not in st.session_state:
+    st.session_state.chart_config = {
+        'ma_periods': [20, 50],
+        'bb_period': 20,
+        'rsi_period': 14,
+        'chart_style': 'plotly_white',
+        'correlation_colormap': 'RdBu'
+    }
 
 # App header
 st.title("📈 Berkshire Hathaway 13F Analyzer")
@@ -204,7 +281,7 @@ with st.sidebar:
     show_bb = st.checkbox("Bollinger Bands", True)
     show_rsi = st.checkbox("RSI", True)
     
-    # Chart customization
+    # Customization
     st.subheader("Chart Customization")
     chart_style = st.selectbox(
         "Chart Style", 
@@ -212,6 +289,13 @@ with st.sidebar:
         index=1
     )
     st.session_state.chart_style = chart_style
+    
+    correlation_colormap = st.selectbox(
+        "Correlation Colors", 
+        ["RdBu", "Viridis", "Plasma", "Inferno", "Magma", "Cividis"],
+        index=0
+    )
+    st.session_state.correlation_colormap = correlation_colormap
     
     # Portfolio upload
     st.subheader("Portfolio Analysis")
@@ -253,6 +337,9 @@ with tab1:
             if stock_data.empty:
                 st.warning(f"No data available for {selected_stock}")
             else:
+                # Calculate daily returns
+                stock_data['Daily Return'] = stock_data['Close'].pct_change()
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -290,17 +377,44 @@ with tab2:
             else:
                 stock_data = calculate_indicators(stock_data)
                 
-                # Technical chart
-                st.subheader(f"{selected_stock} Technical Chart")
-                fig = plot_candlestick(
-                    stock_data, 
-                    f"{selected_stock} Analysis",
-                    show_ma,
-                    show_bb,
-                    show_rsi
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                # Chart configuration
+                col1, col2 = st.columns([3, 1])
                 
+                with col1:
+                    st.subheader(f"{selected_stock} Technical Chart")
+                    fig = plot_candlestick(
+                        stock_data, 
+                        f"{selected_stock} Analysis",
+                        show_ma,
+                        show_bb,
+                        show_rsi
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Export options
+                    export_col1, export_col2 = st.columns(2)
+                    with export_col1:
+                        st.download_button(
+                            label="Download Chart as HTML",
+                            data=fig.to_html(),
+                            file_name=f"{selected_stock}_chart.html",
+                            mime="text/html"
+                        )
+                    with export_col2:
+                        st.download_button(
+                            label="Download Chart as PNG",
+                            data=fig.to_image(format="png"),
+                            file_name=f"{selected_stock}_chart.png",
+                            mime="image/png"
+                        )
+                
+                with col2:
+                    st.subheader("Chart Settings")
+                    rsi_threshold = st.slider(
+                        "RSI Overbought/Oversold Thresholds",
+                        50, 90, (30, 70))
+                    st.info(f"RSI > {rsi_threshold[1]} = Overbought")
+                    st.info(f"RSI < {rsi_threshold[0]} = Oversold")
         except Exception as e:
             st.error(f"Error generating technical chart: {str(e)}")
 
@@ -331,17 +445,34 @@ with tab3:
             st.subheader("Financial Health")
             st.metric("Current Ratio", f"{ratios['Current Ratio']:.2f}" if isinstance(ratios['Current Ratio'], float) else "N/A")
             st.metric("Debt/Equity", f"{ratios['Debt/Equity']:.2f}" if isinstance(ratios['Debt/Equity'], float) else "N/A")
+        
+        # Benchmark comparison
+        st.subheader("Sector Comparison")
+        st.warning("Sector comparison data would be implemented with a market data API in production")
 
 # Correlation Analysis Tab
 with tab4:
     st.subheader("Portfolio Correlation Analysis")
     
     if len(portfolio) > 1:
-        fig = plot_correlation(portfolio, timeframe)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Insufficient data to calculate correlations")
+        with st.expander("Correlation Matrix Explanation"):
+            st.markdown("""
+            **How to interpret this matrix:**
+            - Values close to 1 (dark blue) indicate strong positive correlation
+            - Values close to -1 (dark red) indicate strong negative correlation
+            - Values near 0 indicate no correlation
+            
+            A well-diversified portfolio should contain assets with varying correlations.
+            """)
+        
+        try:
+            fig = plot_correlation(portfolio, timeframe)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Insufficient data to calculate correlations")
+        except Exception as e:
+            st.error(f"Error generating correlation matrix: {str(e)}")
     else:
         st.warning("Add at least 2 stocks to portfolio to see correlation analysis")
 
